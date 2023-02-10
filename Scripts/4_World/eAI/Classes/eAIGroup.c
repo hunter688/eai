@@ -1,6 +1,6 @@
 class eAIGroup
 {
-	static autoptr array<eAIGroup> GROUPS = new array<eAIGroup>();
+	static autoptr array<autoptr eAIGroup> GROUPS = new array<autoptr eAIGroup>();
 
 	private static int m_IDCounter = 0;
 
@@ -19,9 +19,20 @@ class eAIGroup
 	
 	// Group identity 
 	private autoptr eAIFaction m_Faction = new eAIFactionRaiders();
+	
+	private float m_SpeedLimit = 2.0;
+	
+	void SetSpeedLimit(float limit) {
+		m_SpeedLimit = limit;
+	}
+	
+	float GetSpeedLimit() {
+		return m_SpeedLimit;
+	}
 
 	void eAIGroup()
 	{
+		
 		m_TargetInformation = new eAIGroupTargetInformation(this);
 		m_WaypointTargetInformation = new eAIWaypointTargetInformation(this);
 		m_Targets = new array<eAITargetInformation>();
@@ -36,8 +47,19 @@ class eAIGroup
 
 	void ~eAIGroup()
 	{
-		int idx = GROUPS.Find(this);
-		if (idx != -1) GROUPS.RemoveOrdered(idx);
+		if (GROUPS)
+		{
+			int idx = GROUPS.Find(this);
+			if (idx != -1) GROUPS.RemoveOrdered(idx);
+		}
+	}
+	
+	void DeleteMembers() {
+		for (int j = 0; j < m_Members.Count(); j++) {
+			if (GetMember(j))
+				GetGame().ObjectDelete(GetMember(j));
+		}
+		m_Members.Clear();
 	}
 	
 	int AddWaypoint(vector pos) {
@@ -122,7 +144,10 @@ class eAIGroup
 
 	PlayerBase GetLeader()
 	{
-		return m_Members[0];
+		for (int i = 0; i < m_Members.Count(); i++)
+			if (m_Members[i])
+				return m_Members[i];
+		return null;
 	}
 	
 	eAIFormation GetFormation()
@@ -142,6 +167,7 @@ class eAIGroup
 	
 	int AddMember(PlayerBase member)
 	{
+		Print("EAI Add group member");
 		return m_Members.Insert(member);
 	}
 		

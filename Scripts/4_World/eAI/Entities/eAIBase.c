@@ -45,6 +45,8 @@ modded class PlayerBase
 	
 	private bool m_WeaponRaised;
 	
+	private bool m_AIUnlimitedMags = false; // Should this unit be given more mags for free when they run out?
+	
 	private float m_AimDeltaY, m_AimDeltaX; // in deg
 	
 	bool ReloadingInADS = false; // specifically true if we are currently reloading while in combat mode
@@ -63,7 +65,7 @@ modded class PlayerBase
 
 	void ~PlayerBase()
 	{
-		if (IsAI())
+		if (IsAI() && m_eAI_Group)
 		{
 			m_eAI_Group.RemoveMember(m_eAI_Group.GetIndex(this));
 		}
@@ -71,12 +73,12 @@ modded class PlayerBase
 	
 	// Used for deciding the best aim arbiter for the AI.
 	Man GetNearestPlayer() {
-		autoptr array<Man> players = {};
-		GetGame().GetPlayers(players);
+		autoptr array<Man> nearPlayers = {};
+		GetGame().GetPlayers(nearPlayers);
 		float min = 999999.0;
 		float temp;
 		Man closest = null;
-		foreach (Man p : players) {
+		foreach (Man p : nearPlayers) {
 			temp = vector.DistanceSq(GetPosition(), p.GetPosition());
 			if (temp < min) {
 				min = temp;
@@ -95,11 +97,13 @@ modded class PlayerBase
 		}
 		m_AimArbitration = true;
 		if (eAIGlobal_HeadlessClient) {
-			Print("Starting aim arbitration for " + this + " with HC");
+			if (g_eAISettings.eAIDebug > 0)
+				Print("Starting aim arbitration for " + this + " with HC");
 			GetRPCManager().SendRPC("eAI", "eAIAimArbiterStart", new Param1<Weapon_Base>(weap), false, eAIGlobal_HeadlessClient);
 			return true;
 		}
-		Print("Starting aim arbitration for " + this + " with client " + m_CurrentArbiter.GetIdentity());
+		if (g_eAISettings.eAIDebug > 0)
+			Print("Starting aim arbitration for " + this + " with client " + m_CurrentArbiter.GetIdentity());
 		GetRPCManager().SendRPC("eAI", "eAIAimArbiterStart", new Param2<Weapon_Base, int>(weap, 100), false, m_CurrentArbiter.GetIdentity());
 		return true;
 	}
@@ -113,11 +117,13 @@ modded class PlayerBase
 		}
 		m_AimArbitration = false;
 		if (eAIGlobal_HeadlessClient) {
-			Print("Stopping aim arbitration for " + this + " with HC");
+			if (g_eAISettings.eAIDebug > 0)
+				Print("Stopping aim arbitration for " + this + " with HC");
 			GetRPCManager().SendRPC("eAI", "eAIAimArbiterStop", new Param1<Weapon_Base>(weap), false, eAIGlobal_HeadlessClient);
 			return true;
 		}
-		Print("Stopping aim arbitration for " + this + " with client " + m_CurrentArbiter.GetIdentity());
+		if (g_eAISettings.eAIDebug > 0)
+			Print("Stopping aim arbitration for " + this + " with client " + m_CurrentArbiter.GetIdentity());
 		GetRPCManager().SendRPC("eAI", "eAIAimArbiterStop", new Param1<Weapon_Base>(weap), false, m_CurrentArbiter.GetIdentity());
 		return true;
 	}
@@ -147,7 +153,8 @@ modded class PlayerBase
 		Man nearest = GetNearestPlayer();
 		if (!nearest) return false;
 		
-		Print("Refreshing aim arbitration for " + this + " current: " + m_CurrentArbiter + " closest: " + nearest);
+		if (g_eAISettings.eAIDebug > 0)
+			Print("Refreshing aim arbitration for " + this + " current: " + m_CurrentArbiter + " closest: " + nearest);
 		if (!m_CurrentArbiter || !m_CurrentArbiter.GetIdentity() || !m_CurrentArbiter.IsAlive()) {
 			m_CurrentArbiter = nearest;
 			GetRPCManager().SendRPC("eAI", "eAIAimArbiterSetup", new Param1<Weapon_Base>(weap), false, m_CurrentArbiter.GetIdentity());
@@ -169,16 +176,19 @@ modded class PlayerBase
 			return true;
 		}
 		
-		Print("Aim arbitration was refreshed, but is already running with the best client.");
+		if (g_eAISettings.eAIDebug > 0)
+			Print("Aim arbitration was refreshed, but is already running with the best client.");
 		
 		return false;
 	}
 	
 	bool PlayerIsEnemy(PlayerBase other) {
 		if (other.GetGroup() && GetGroup()) {
-			if (other.GetGroup() == GetGroup())
+			if (other.GetGroup() == GetGroup()) // If they are in our group, always friendly
 				return false;
-			if (other.GetGroup().GetFaction().isFriendly(GetGroup().GetFaction()))
+			if (other.GetGroup().GetFaction().isFriendly(GetGroup().GetFaction())) // If they are in a faction friendly to us
+				return false;
+			if (GetGroup().GetFaction().confirmKill(other) < 1) // If their existance doesn't threaten us - mainly for bodyguards
 				return false;
 			
 			// at this point we know both we and they have groups, and the groups aren't friendly towards each other
@@ -190,6 +200,12 @@ modded class PlayerBase
 		// Update the aim during combat, return true if we are within parameters to fire.
 	int m_AllowedFireTime = 0;
 	bool ShouldFire() {
+		if (threats[0] && PlayerBase.Cast(threats[0])) {
+			int threatLevel = GetGroup().GetFaction().confirmKill(PlayerBase.Cast(threats[0]));
+			if (threatLevel < 2)
+				return false;
+		}
+		
 		Weapon_Base weap = Weapon_Base.Cast(GetHumanInventory().GetEntityInHands());
 		
 		if (!weap) return false;
@@ -204,13 +220,26 @@ modded class PlayerBase
 		}
 		
 		// for now we just check the raw aim errors
-		if (m_AimDeltaX < 1.0 && m_AimDeltaY < 1.0) {
+		float allowedError = 1/(g_eAISettings.eAIAccuracy + 0.2);
+		if (m_AimDeltaX < allowedError && m_AimDeltaY < allowedError) {
 			DelayFiring(500, 300);
 			return true;
 		}
 		
 		return false;
 	
+	}
+	
+	int m_AllowedPunchTime = -1;
+	void DelayPunching(int time_ms, int randomAdditionalTime) {
+		m_AllowedPunchTime = GetGame().GetTime() + time_ms;
+		if (randomAdditionalTime > 0) m_AllowedPunchTime += Math.RandomInt(0, randomAdditionalTime);
+	}
+	bool TryPunching(EntityAI pTarget) {
+		if (m_AllowedPunchTime > GetGame().GetTime()) return false;
+		DelayPunching(1000, 0);
+		StartCommand_Melee(pTarget);
+		return true;
 	}
 	
 	// Keep the unit from firing until time_ms from now.
@@ -231,9 +260,11 @@ modded class PlayerBase
 	{
 		super.EEHitBy(damageResult, damageType, source, component, dmgZone, ammo, modelPos, speedCoef);
 		
-		Print("eAI: Damage registered from " + source + " type: " + damageType + " component: " + component + " datageResult: " + damageResult + " dmgZone: " + dmgZone + " modelPos: " + modelPos + " speedCoef: " + speedCoef);
+		if (g_eAISettings.eAIDebug > 1)
+			Print("eAI: Damage registered from " + source + " type: " + damageType + " component: " + component + " datageResult: " + damageResult + " dmgZone: " + dmgZone + " modelPos: " + modelPos + " speedCoef: " + speedCoef);
 		
-		Print("eAI: Damage registered from " + source);
+		if (g_eAISettings.eAIDebug > 1)
+			Print("eAI: Damage registered from " + source);
 		Weapon_Base player_weapon = Weapon_Base.Cast(source);
 		if (player_weapon) {
 			array<Object> objects = new array<Object>();
@@ -271,10 +302,10 @@ modded class PlayerBase
 	}
 	
 	void ScanForDistantPlayers(out array<Object> seenPlayers) {
-		autoptr array<Man> players = {};
-		GetGame().GetPlayers(players);
+		autoptr array<Man> nearestPlayers = {};
+		GetGame().GetPlayers(nearestPlayers);
 		vector LookDir = MiscGameplayFunctions.GetHeadingVector(this);
-		foreach (Man p : players) {
+		foreach (Man p : nearestPlayers) {
 			float distSq = vector.DistanceSq(GetPosition(), p.GetPosition());
 			// This checks that the distance is less than 500, and that the AI is at least facing in the half plane of the right way.
 			// If we wanted to, we could normalize the direction vector, then do something like vector.Dot(v1, v2) > 0.5
@@ -294,7 +325,7 @@ modded class PlayerBase
 		
 		// Leave threats in that don't need cleaning
 		for (int j = 0; j < threats.Count(); j++)
-			if (!threats[j] || !threats[j].IsAlive() || IsViewOccluded(threats[j].GetPosition() + "0 1.5 0"))
+			if (!threats[j] || !threats[j].IsAlive() || IsViewOccluded(threats[j].GetPosition() + "0 1.3 0") || ( PlayerBase.Cast(threats[j]) && GetGroup().GetFaction().confirmKill(PlayerBase.Cast(threats[j])) < 1 ) )
 				threats.Remove(j);
 		
 		autoptr array<Object> newThreats = new array<Object>();
@@ -317,21 +348,56 @@ modded class PlayerBase
 				if (temp < minDistance) {
 					AddToThreatList(infected, true);
 				} else AddToThreatList(infected);
-			} else if (animal && animal.IsAlive() && !IsViewOccluded(animal.GetPosition() + "0 1.5 0")) {
-				// It's an infected, add it to teh threates array
+			} else if (animal && animal.IsAlive() && !IsViewOccluded(animal.GetPosition() + "0 1.0 0")) {
+				// Animal logic - first make sure the animal isn't someone's dog first 
+				#ifdef DAYZ_DOG
+				Dayz_Doggo dog = Dayz_Doggo.Cast(animal);
+				if (dog) {
+					// If the dog doesn't have an owner, don't shoot at the little guy :(
+					if (dog.GetOwnerId() == 0) {
+						i++; continue;
+					}
+					
+					// Now the tricky part, we want to "continue" the loop if the dog belongs to a friend of our faction
+					PlayerBase owner = null;
+					
+					array<Man> players = new array<Man>;
+					GetGame().GetPlayers(players);
+					for(int k = 0; k < players.Count(); k++)
+					{
+						if(players.Get(k).GetID() == dog.GetOwnerId())
+						{
+							owner = PlayerBase.Cast(players.Get(k));
+						}
+					}
+
+					if (!owner || !PlayerIsEnemy(owner)) {
+						i++; continue;
+					}
+				}
+				#endif
+				// Next we need to throw out some non enemy animals
+				if (Animal_BosTaurus.Cast(animal) || Animal_CapreolusCapreolus.Cast(animal) || Animal_CervusElaphus.Cast(animal) || Animal_GallusGallusDomesticus.Cast(animal) || Animal_OvisAries.Cast(animal)) {
+					i++; continue;
+				}
 				temp = vector.Distance(newThreats[i].GetPosition(), GetPosition());
 				if (temp < minDistance) {
 					AddToThreatList(animal, true);
 				} else AddToThreatList(animal);
-			} else if (player && PlayerIsEnemy(player) && player.IsAlive() && !IsViewOccluded(player.GetPosition() + "0 1.5 0")) {
+			} else if (player && PlayerIsEnemy(player) && player.IsAlive() && !IsViewOccluded(player.GetPosition() + "0 1.3 0")) {
+				//Print("name: " + player.GetGroup().GetFaction().getName());
+				if (player.GetGroup().GetFaction().getName() == "Guards") {i++; continue;}
 				// If it's an enemy player
 				temp = vector.Distance(newThreats[i].GetPosition(), GetPosition());
-				if (temp < minDistance) {
+				// For players specifically we need to take into account the distance and threat level
+				int threatLevel = GetGroup().GetFaction().confirmKill(player);
+				if (temp < minDistance && threatLevel > 1 || threatLevel > 1) {
 					AddToThreatList(player, true);
 				} else AddToThreatList(player);
 			}
 			i++;
 		}
+		
 		return threats.Count();
 	}
 	
@@ -340,7 +406,7 @@ modded class PlayerBase
 		return m_eAI_Is;
 	}
 
-	ref eAIGroup SetAI(eAIGroup group = null)
+	eAIGroup SetAI(eAIGroup group)
 	{
 		m_eAI_Is = true;
         m_eAI_Group = group;
@@ -350,12 +416,6 @@ modded class PlayerBase
         if (m_eAI_Group)
 		{
 			m_eAI_Group.AddMember(this);
-		}
-		else
-		{
-			// We will only be using this case with AI which don't already have a group leader.
-			m_eAI_Group = new eAIGroup();
-			m_eAI_Group.SetLeader(this);
 		}
 
 		m_ActionManager = new eAIActionManager(this);
@@ -381,6 +441,11 @@ modded class PlayerBase
 		}
 
 		return m_eAI_Group;
+	}
+	
+	void SetUnlimitedMags(bool unlimited) {
+		if (IsAI())
+			m_AIUnlimitedMags = unlimited;
 	}
 	
 	// This can be used by humans too
@@ -507,6 +572,32 @@ modded class PlayerBase
 	bool IsViewOccluded(vector end) {
 		vector start = GetPosition() + "0 1.5 0";
 		vector hitPos, hitNormal;
+		Object hitObject;
+		float hitFraction;
+		
+		set<Object> objects = new set<Object>;
+		vector contact_dir;
+		int contact_component;
+
+		PhxInteractionLayers layerMask = PhxInteractionLayers.BUILDING; //PhxInteractionLayers.CHARACTER; // |PhxInteractionLayers.AI|PhxInteractionLayers.AI_COMPLEX|PhxInteractionLayers.FIREGEOM|PhxInteractionLayers.BUILDING|PhxInteractionLayers.VEHICLE|PhxInteractionLayers.TERRAIN|PhxInteractionLayers.FENCE;
+		//should do raycast but no navmesh raycast
+		bool raycast = DayZPhysics.RayCastBullet(start, end, layerMask, null, hitObject, hitPos, hitNormal, hitFraction);
+		
+		//bool raycast = DayZPhysics.RaycastRV( start, end, hitPos, contact_dir, contact_component, objects, this, this, false, false, ObjIntersectView, 0.005 );
+
+		//Print("RAYCAST " + raycast + " start " + start + " end " + end + " hitpos " + hitPos + " hitObject " + hitObject);
+		if (raycast)
+		{
+			float dist = vector.Distance(end, hitPos);
+			if (dist < 1.5)
+			{
+				//Print("eAI RAYCAST HIT");
+				return false;
+			}
+			//Print("RAYCAST TRUE");
+		}
+		//return true;
+		//Print("eAI Path Blocked " + PathBlocked(start, end, hitPos, hitNormal));
 		return PathBlocked(start, end, hitPos, hitNormal);
 	}
 	
@@ -582,7 +673,7 @@ modded class PlayerBase
 
 		m_Path.Clear();
 
-		//Print(m_eAI_Targets.Count());
+		//Print("Targets " + m_eAI_Targets.Count());
 
 		// The last check is in case the "leader" of the group no longer exists
 		if (GetGroup() && GetGroup().GetLeader() == this && GetFSM().GetState().GetName() == "Follow") {
@@ -590,12 +681,19 @@ modded class PlayerBase
 			world.FindPath(GetPosition(), GetGroup().GetWaypointTargetInformation().GetPosition(), m_PathFilter, m_Path);
 		} else if (m_PathFilter && m_eAI_Targets.Count() > 0 && m_eAI_Targets[0] && m_eAI_Targets[0].param5 && m_eAI_Targets[0].param5.GetEntity())
 		{
-			//Print(m_eAI_Targets[0]);
-
 			world = GetGame().GetWorld().GetAIWorld();
 			world.FindPath(GetPosition(), m_eAI_Targets[0].param5.GetPosition(this), m_PathFilter, m_Path);
 		}
-
+		
+		else if (GetGroup() && GetGroup().GetLeader() != this && GetFSM().GetState().GetName() == "Follow")
+		{
+			//Print("eAI NPC INDEX " + GetGroup().GetIndex(this));
+			world = GetGame().GetWorld().GetAIWorld();
+			//world.FindPath(GetPosition(), GetGroup().GetWaypointTargetInformation().GetPosition(), m_PathFilter, m_Path);
+			world.FindPath(GetPosition(), GetGroup().GetTargetInformation().GetPosition(this), m_PathFilter, m_Path);
+			
+		}
+		
 		HumanInputController hic = GetInputController();
 		EntityAI entityInHands = GetHumanInventory().GetEntityInHands();
 		bool isWeapon		= entityInHands	&& entityInHands.IsInherited(Weapon);
@@ -623,7 +721,7 @@ modded class PlayerBase
 		
 		if (fsmctr == 0) CleanThreats();
 		fsmctr += 1;
-		if (fsmctr > 99) fsmctr = 0;
+		if (fsmctr > 19) fsmctr = 0; // 2 times per second
 		
 		
 		GetPlayerSoundManagerServer().Update();
@@ -709,7 +807,7 @@ modded class PlayerBase
 		{
 			return;
 		}
-
+		
 		if (m_ActionManager)
 		{
 			m_ActionManager.Update(DayZPlayerConstants.COMMANDID_MOVE);
@@ -717,6 +815,7 @@ modded class PlayerBase
 		
 		if (pCurrentCommandID == DayZPlayerConstants.COMMANDID_MOVE)
 		{
+			
 			StartCommand_Script(new eAICommandMove(this, m_eAI_AnimationST));
 			return;
 		}
@@ -731,7 +830,8 @@ modded class PlayerBase
 	// We should integrate this into ReloadWeapon
 	void ReloadWeaponAI( EntityAI weapon, EntityAI magazine )
 	{
-		Print(this.ToString() + "(DayZPlayerInstanceType." + GetInstanceType().ToString() + ") is trying to reload " + magazine.ToString() + " into " + weapon.ToString());
+		if (g_eAISettings.eAIDebug > 0)
+			Print(this.ToString() + "(DayZPlayerInstanceType." + GetInstanceType().ToString() + ") is trying to reload " + magazine.ToString() + " into " + weapon.ToString());
 		eAIActionManager mngr_ai;
 		CastTo(mngr_ai, GetActionManager());
 		
@@ -752,10 +852,17 @@ modded class PlayerBase
 			else if (GetWeaponManager().CanAttachMagazine(wpn, mag))
 			{
 				GetWeaponManager().AttachMagazine(mag);
+				if (m_AIUnlimitedMags)
+					GetHumanInventory().CreateInInventory(mag.GetType());
 			}
-			else if (GetWeaponManager().CanSwapMagazine( wpn, mag))
+			else if (GetWeaponManager().CanSwapMagazine(wpn, mag))
 			{
-				GetWeaponManager().SwapMagazine( mag);
+				if (m_AIUnlimitedMags) {
+					Magazine m = wpn.GetMagazine(wpn.GetCurrentMuzzle());
+					GetGame().GetCallQueue(CALL_CATEGORY_SYSTEM).CallLater(m.Delete, 20000, false);
+					GetHumanInventory().CreateInInventory(mag.GetType());
+				}
+				GetWeaponManager().SwapMagazine(mag);
 			}
 			else if (GetWeaponManager().CanLoadBullet( wpn, mag))
 			{
@@ -849,7 +956,8 @@ modded class PlayerBase
 				// We'll worry about that later.
 				if (!weapon.aim.WarnedOld) {
 					weapon.aim.WarnedOld = true;
-					Print("Warning! Aim profile has gone out of date for " + weapon.ToString());
+					if (g_eAISettings.eAIDebug > 0)
+						Print("Warning! Aim profile has gone out of date for " + weapon.ToString());
 				}
 				
 				RefreshAimArbitration();
@@ -867,7 +975,7 @@ modded class PlayerBase
 				lastdY = m_AimDeltaY;
 			} else { // Aim along the x axis normally
 				// could save time on like 2/10 updates by moving calculations in here
-				pInputs.OverrideAimChangeX(true, m_AimDeltaX * (1/500.0));
+				pInputs.OverrideAimChangeX(true, m_AimDeltaX * (1/500.0) * (g_eAISettings.eAIAccuracy + 0.2));
 				pInputs.OverrideAimChangeY(false, 0);
 				lastdX = m_AimDeltaX;
 			}

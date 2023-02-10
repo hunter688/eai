@@ -68,7 +68,8 @@ class eAITargetInformation
     
     eAITargetGroup Insert(eAIGroup group, int max_time = 10000)
     {
-        eAITargetGroup params;
+        Print("EAI Insert group");
+		eAITargetGroup params;
         params = new eAITargetGroup(group, GetGame().GetTime(), max_time, new set<eAIBase>(), this);
         if (!m_Groups.Insert(group.GetID(), params)) return null;
 
@@ -79,7 +80,8 @@ class eAITargetInformation
 
     eAITargetGroup Insert(eAIBase ai, int max_time = 10000)
     {
-        eAITargetGroup params;
+        //Print("EAI Insert AI");
+		eAITargetGroup params;
         params = Insert(ai.GetGroup(), max_time);
         if (!params) return null; 
         params.param4.Insert(ai);
@@ -89,7 +91,8 @@ class eAITargetInformation
 
     eAITargetGroup AddAI(eAIBase ai)
     {
-        eAITargetGroup params;
+        Print("EAI AddAI AI");
+		eAITargetGroup params;
         int group_id = ai.GetGroup().GetID();
         if (!m_Groups.Find(group_id, params)) return Insert(ai);
 

@@ -20,6 +20,8 @@ class eAIGame {
 	// Server side list of weapon data 
 	autoptr eAIServerAimProfileManager m_ServerAimMngr;
 	
+	autoptr array<string> adminIDs = {};
+	
 	vector debug_offset = "8 0 0"; // Offset from player to spawn a new AI entity at when debug called
 	vector debug_offset_2 = "20 0 0"; // Electric bugaloo
 	
@@ -40,6 +42,7 @@ class eAIGame {
 			GetRPCManager().AddRPC("eAI", "eAIAimDetails", m_ServerAimMngr, SingeplayerExecutionType.Server);
 		}
 		
+		GetRPCManager().AddRPC("eAI", "ReqDebugMenu", this, SingeplayerExecutionType.Server);
 		GetRPCManager().AddRPC("eAI", "SpawnEntity", this, SingeplayerExecutionType.Server);
 		GetRPCManager().AddRPC("eAI", "DebugFire", this, SingeplayerExecutionType.Server);
 		GetRPCManager().AddRPC("eAI", "DebugParticle", this, SingeplayerExecutionType.Server);
@@ -52,18 +55,43 @@ class eAIGame {
 		GetRPCManager().AddRPC("eAI", "DayZPlayerInventory_OnEventForRemoteWeaponAICallback", this, SingeplayerExecutionType.Server);
     }
 	
-	// Todo we may want to make a "group manager" class
-	autoptr array<autoptr eAIGroup> m_groups = {};
+	void ReqDebugMenu(CallType type, ParamsReadContext ctx, PlayerIdentity sender, Object target) {
+		Param1<string> data;
+        if (!ctx.Read(data)) return;
+		if(type == CallType.Server) {
+			Print("eAI: Debug menu request");
+			string id = sender.GetPlainId();
+			if (adminIDs.Find(id) > -1) {
+				GetRPCManager().SendRPC("eAI", "ReqDebugMenu", new Param1<string>(id), true, sender);
+				Print("Access granted to " + sender.GetPlainId() + " ("+sender.GetName()+")");
+			} else Print("Access denied to " + sender.GetPlainId() + " ("+sender.GetName()+")");
+		} else {
+			Print("Accessing Debug Menu for " + data.param1 + " as " + GetGame().GetPlayer().GetIdentity().GetPlainId());
+			//if (data.param1.ToInt() > 0) {
+				Print("Access Granted");
+				//if (!eAICommandMenu.instance) new eAICommandMenu();
+				//GetGame().GetUIManager().ShowScriptedMenu(eAICommandMenu.instance, null);
+				if (!GetGame().GetUIManager().FindMenu(EAI_COMMAND_MENU))
+				{
+					GetGame().GetUIManager().EnterScriptedMenu(EAI_COMMAND_MENU, NULL);
+				}
+
+			//}
+		}
+	}
 	
 	// return the group owned by leader, otherwise create a new one.
 	eAIGroup GetGroupByLeader(PlayerBase leader, bool createIfNoneExists = true) {
-		for (int i = 0; i < m_groups.Count(); i++)
-			if (m_groups[i].GetLeader() == leader)
-				return m_groups[i];
+		for (int i = 0; i < eAIGroup.GROUPS.Count(); i++) {
+			if (!eAIGroup.GROUPS[i]) continue;
+			eAIBase GrpLeader = eAIGroup.GROUPS[i].GetLeader();
+			if (GrpLeader && GrpLeader == leader)
+				return eAIGroup.GROUPS[i];
+		}
 		
 		if (!createIfNoneExists) return null;
 		
-		eAIGroup newGroup = m_groups.Get(m_groups.Insert(new eAIGroup()));
+		eAIGroup newGroup = new eAIGroup();
 		newGroup.SetLeader(leader);
 		leader.SetGroup(newGroup);
 		return newGroup;
@@ -71,7 +99,7 @@ class eAIGame {
 	
 	//! @param owner Who is the manager of this AI
 	//! @param formOffset Where should this AI follow relative to the formation?
-	eAIBase SpawnAI_Helper(DayZPlayer owner) {
+	eAIBase SpawnAI_Helper(DayZPlayer owner, string loadout = "SoldierLoadout.json") {
 		PlayerBase pb_Human;
 		if (!Class.CastTo(pb_Human, owner)) return null;
 		
@@ -83,14 +111,12 @@ class eAIGame {
 		
 		pb_AI.SetAI(ownerGrp);
 			
-//		SoldierLoadout.Apply(pb_AI);	//or PoliceLoadout.Apply(pb_AI);
-		HumanLoadout.Apply(pb_AI, "SoldierLoadout.json");
-//		HumanLoadout.Apply(pb_AI, "PoliceLoadout.json");
-		
+		HumanLoadout.Apply(pb_AI, loadout);
+		Print("LEADER " + ownerGrp);
 		return pb_AI;
 	}
 	
-	eAIBase SpawnAI_Sentry(vector pos) {
+	eAIBase SpawnAI_Sentry(vector pos, string loadout = "SoldierLoadout.json") {
 		eAIBase pb_AI;
 		if (!Class.CastTo(pb_AI, GetGame().CreatePlayer(null, SurvivorRandom(), pos, 0, "NONE"))) return null;
 		if (eAIGlobal_HeadlessClient) GetRPCManager().SendRPC("eAI", "HCLinkObject", new Param1<PlayerBase>(pb_AI), false, eAIGlobal_HeadlessClient);
@@ -98,13 +124,16 @@ class eAIGame {
 		eAIGroup ownerGrp = GetGroupByLeader(pb_AI);
 		
 		pb_AI.SetAI(ownerGrp);
+		
+		if (vector.DistanceSq(pos, pb_AI.GetPosition()) > 1.0)
+			pb_AI.SetPosition(pos);
 			
-		HumanLoadout.Apply(pb_AI, "SoldierLoadout.json");
+		HumanLoadout.Apply(pb_AI, loadout);
 				
 		return pb_AI;
 	}
 	
-	eAIBase SpawnAI_Patrol(vector pos) {
+	eAIBase SpawnAI_Patrol(vector pos, string loadout = "SoldierLoadout.json") {
 		eAIBase pb_AI;
 		if (!Class.CastTo(pb_AI, GetGame().CreatePlayer(null, SurvivorRandom(), pos, 0, "NONE"))) return null;
 		if (eAIGlobal_HeadlessClient) GetRPCManager().SendRPC("eAI", "HCLinkObject", new Param1<PlayerBase>(pb_AI), false, eAIGlobal_HeadlessClient);
@@ -112,8 +141,11 @@ class eAIGame {
 		eAIGroup ownerGrp = GetGroupByLeader(pb_AI);
 		
 		pb_AI.SetAI(ownerGrp);
+		
+		if (vector.DistanceSq(pos, pb_AI.GetPosition()) > 1.0)
+			pb_AI.SetPosition(pos);
 			
-		HumanLoadout.Apply(pb_AI, "SoldierLoadout.json");
+		HumanLoadout.Apply(pb_AI, loadout);
 		
 		GetGame().GetCallQueue(CALL_CATEGORY_SYSTEM).CallLater(pb_AI.RequestTransition, 10000, false, "Rejoin");
 				
@@ -171,7 +203,7 @@ class eAIGame {
         if (!ctx.Read(data)) return;
 		if(type == CallType.Server ) {
             Print("eAI: ClearAllAI called.");
-			foreach (eAIGroup g : m_groups) {
+			foreach (eAIGroup g : eAIGroup.GROUPS) {
 				for (int i = g.Count() - 1; i > -1; i--) {
 					PlayerBase p = g.GetMember(i);
 					if (p.IsAI()) {
@@ -207,8 +239,8 @@ class eAIGame {
 		Param2<vector, vector> data;
         if (!ctx.Read(data)) return;
 		if(type == CallType.Client ) {
-			Particle p = Particle.PlayInWorld(ParticleList.DEBUG_DOT, data.param1);
-			p.SetOrientation(data.param2);			
+			//Particle p = Particle.PlayInWorld(ParticleList.DEBUG_DOT, data.param1);
+			//p.SetOrientation(data.param2);			
 		}
 	}
 	
@@ -319,6 +351,11 @@ modded class MissionServer
 	
 	static string HeadlessClientSteamID = "REDACTED (PUT STEAMID HERE)";
 	
+	override void EquipCharacter(MenuDefaultCharacterData char_data) {
+		super.EquipCharacter(char_data);
+		m_eaiGame.GetGroupByLeader(m_player); // This forces respawning players into a new group
+	}
+	
 	eAIGame GetEAIGame() {
 		return m_eaiGame;
 	}
@@ -333,14 +370,27 @@ modded class MissionServer
 
 		GetDayZGame().eAICreateManager();
 
-        Print( "eAI - Loaded Server Mission" );
+        Print( "eAI - Loaded Mission, Reading $profile/eAI directory" );
+		
+		MakeDirectory("$profile:eAI/");
+		
+		// load the settings
+		g_eAISettings = new eAISettings();
+		if (!FileExist("$profile:eAI/eAISettings.json")) JsonFileLoader<eAISettings>.JsonSaveFile("$profile:eAI/eAISettings.json", g_eAISettings);
+		JsonFileLoader<eAISettings>.JsonLoadFile("$profile:eAI/eAISettings.json", g_eAISettings);
+		
+		if (!FileExist("$profile:eAI/eAIAdmins.json")) JsonFileLoader<array<string>>.JsonSaveFile("$profile:eAI/eAIAdmins.json", m_eaiGame.adminIDs);
+		JsonFileLoader<array<string>>.JsonLoadFile("$profile:eAI/eAIAdmins.json", m_eaiGame.adminIDs);
+		
+		// load a default loadout, just to save the default if not exist
+		HumanLoadout Loadout = HumanLoadout.LoadData("SoldierLoadout.json");
     }
 	
 	override void InvokeOnConnect(PlayerBase player, PlayerIdentity identity) {
 		super.InvokeOnConnect(player, identity);
 		if (identity && identity.GetId() == HeadlessClientSteamID) {
 			eAIGlobal_HeadlessClient = identity;
-			foreach (eAIGroup g : m_eaiGame.m_groups) {
+			foreach (eAIGroup g : eAIGroup.GROUPS) {
 				for (int i = 0; i < g.Count(); i++) {
 					eAIBase ai = g.GetMember(i);
 					if (ai && ai.IsAI() && ai.IsAlive())
@@ -349,7 +399,7 @@ modded class MissionServer
 			}
 				
 		} else
-		m_eaiGame.GetGroupByLeader(player);
+		m_eaiGame.GetGroupByLeader(player); // This forces returning players into a new group
 	}
 };
 
@@ -366,19 +416,27 @@ modded class MissionGameplay
 		GetDayZGame().eAICreateManager();
 
         Print( "eAI - Loaded Client Mission" );
+		
+		MakeDirectory("$profile:eAI/");
+		
+		// load the settings
+		g_eAISettings = new eAISettings();
+		if (!FileExist("$profile:eAI/eAISettings.json")) JsonFileLoader<eAISettings>.JsonSaveFile("$profile:eAI/eAISettings.json", g_eAISettings);
+		JsonFileLoader<eAISettings>.JsonLoadFile("$profile:eAI/eAISettings.json", g_eAISettings);
     }
 	
 	override void OnUpdate(float timeslice) {
 		super.OnUpdate(timeslice);
-
+		
 		// If we want to open the command menu, and nothing else is open
 		if (m_eAIRadialKey.LocalPress() && !GetGame().GetUIManager().GetMenu()) {
-			if (!eAICommandMenu.instance) new eAICommandMenu();
-			GetUIManager().ShowScriptedMenu(eAICommandMenu.instance, null);
+			// check to see if we are an admin
+			GetRPCManager().SendRPC("eAI", "ReqDebugMenu", new Param1<string>("0"), true, NULL);
+	
 		}
 		
 		// If we want to close the command menu, and our menu is open
-		if (m_eAIRadialKey.LocalRelease() && GetGame().GetUIManager().GetMenu() == eAICommandMenu.instance) {
+		if (m_eAIRadialKey.LocalRelease() && GetGame().GetUIManager().GetMenu() && GetGame().GetUIManager().GetMenu() == eAICommandMenu.instance) {
 			eAICommandMenu.instance.OnMenuRelease();
 			GetUIManager().Back();
 		}

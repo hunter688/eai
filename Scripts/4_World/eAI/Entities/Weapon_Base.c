@@ -26,7 +26,8 @@ bool DayZPlayerInventory_OnEventForRemoteWeaponAI (int packedType, DayZPlayer pl
 	PlayerBase pb = PlayerBase.Cast(player);
 	
 	if (!pb) {
-		Print("DayZPlayerInventory_OnEventForRemoteWeaponAI Callback for null PlayerBase! I am giving up, some inventory will be out of sync!");
+		if (g_eAISettings.eAIDebug > 1)
+			Print("DayZPlayerInventory_OnEventForRemoteWeaponAI Callback for null PlayerBase! I am giving up, some inventory will be out of sync!");
 		return false;
 	}
 	
@@ -96,9 +97,9 @@ modded class Weapon_Base {
 			GetRPCManager().SendRPC("eAI", "DebugParticle", new Param2<vector, vector>(begin_point, vector.Zero));
 		
 		
-		// TODO: If we use Azumith and Inclination , we will get the benefits from server side interpolation.
+			// TODO: If we use Azumith and Inclination , we will get the benefits from server side interpolation.
 		
-		Print("Muzzle pos: " + begin_point.ToString() + " dir-pos: " + (end_point-begin_point).ToString());
+			Print("Muzzle pos: " + begin_point.ToString() + " dir-pos: " + (end_point-begin_point).ToString());
 		}
 		
 		// Prep Raycast
@@ -186,16 +187,20 @@ modded class Weapon_Base {
 			// Write the ctx that would normally be sent to the server... note we need to skip writing INPUT_UDT_WEAPON_REMOTE_EVENT
 			// since this would normally be Read() and stripped away by the server before calling OnEventForRemoteWeapon
 			
+			if (e.m_player == null) return false;
+			
 			// also wait, I think everyone is meant to execute this
 			ScriptRemoteInputUserData ctx = new ScriptRemoteInputUserData;
-			Print("Sending weapon event for " + e.GetEventID().ToString() + " player:" + e.m_player.ToString() + " mag:" + e.m_magazine.ToString());
+			if (g_eAISettings.eAIDebug > 1)
+				Print("Sending weapon event for " + e.GetEventID().ToString() + " player:" + e.m_player.ToString() + " mag:" + e.m_magazine.ToString());
 			GetRPCManager().SendRPC("eAI", "DayZPlayerInventory_OnEventForRemoteWeaponAICallback", new Param3<int, DayZPlayer, Magazine>(e.GetPackedType(), e.m_player, e.m_magazine));
 			
 			// Now that the RPC is sent to the clients, we need to compute the ballistics data and see about a hit.
 			// We miiight want to do this in another thread???
 			if (CanFire() && e.GetEventID() == WeaponEventID.TRIGGER) {
 				
-				Print("Round fired by AI: " + e.m_player);
+				if (g_eAISettings.eAIDebug > 1)
+					Print("Round fired by AI: " + e.m_player);
 				
 				// Get ballistics info
 				float ammoDamage;
@@ -241,16 +246,19 @@ modded class Weapon_Base {
 	 **/
 	override bool ProcessWeaponAbortEvent (WeaponEventBase e)
 	{
-		if (GetGame().IsServer() && PlayerBase.Cast(e.m_player).IsAI()) { // This is very hacky... we need to check if the unit is also AI
-			if (m_fsm.ProcessEvent(e) == ProcessEventResult.FSM_OK)
-				return true;
-
+		if (PlayerBase.Cast(e.m_player).IsAI()) { // This is very hacky... we need to check if the unit is also AI
+			if (GetGame().IsServer())
+			{
+				ProcessEventResult aa;
+				m_fsm.ProcessAbortEvent(e, aa);
+				if (aa == ProcessEventResult.FSM_OK)
+				{
+					return true;
+				}
+			}
 			return false;
-		} else if (!PlayerBase.Cast(e.m_player).IsAI())
-			SyncEventToRemote(e);
+		}
 		
-		ProcessEventResult aa;
-		m_fsm.ProcessAbortEvent(e, aa);
-		return aa == ProcessEventResult.FSM_OK;
+		return super.ProcessWeaponAbortEvent(e);
 	}
 }

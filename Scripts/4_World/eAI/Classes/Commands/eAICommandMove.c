@@ -40,7 +40,9 @@ class eAICommandMove extends eAICommandBase
 
 	override void OnActivate()
 	{
-		SetSpeedLimit(-1);
+		SetSpeedLimit(2);
+		if (m_Unit.GetGroup()) // && m_Unit.GetGroup().GetLeader() == m_Unit)
+			SetSpeedLimit(m_Unit.GetGroup().GetSpeedLimit());
 		
 		m_Unit.GetTransform(m_Transform);
 		
@@ -219,7 +221,9 @@ class eAICommandMove extends eAICommandBase
 		else if (wayPointDistance < 8.0)
 			m_TargetSpeed = 1.0;
 		else
-			m_TargetSpeed = 2.0; // use 3.0 for sprint
+			m_TargetSpeed = 3.0;
+		
+		if (m_TargetSpeed > m_SpeedLimit) m_TargetSpeed = m_SpeedLimit;
 		
 		if (isFinal && wayPointDistance < 1.0)
 			m_TargetSpeed = 0.0;

@@ -57,7 +57,7 @@ class eAICommandMenu extends UIScriptedMenu
 	protected TextWidget m_CategoryNameText;
 
 	//
-	const string RADIAL_TEXT = "RadialText";
+	const string RADIAL_TEXT = "GestureNameText";
 	const string CATEGORY_NAME = "CategoryName";
 	//selections
 	protected Widget m_SelectedItem;
@@ -73,7 +73,7 @@ class eAICommandMenu extends UIScriptedMenu
 	void eAICommandMenu()
 	{
 		m_GestureItems = new ref array < ref eAICommandMenuItem > ;
-
+		
 		if (!instance)
 		{
 			instance = this;
@@ -199,7 +199,7 @@ class eAICommandMenu extends UIScriptedMenu
 		{
 			gesture_items.Insert(new eAICommandMenuItem(eAICommandCategories.CAT_MOVEMENT, "Movement", eAICommandCategories.CATEGORIES));
 			gesture_items.Insert(new eAICommandMenuItem(eAICommandCategories.CAT_FORMATION, "Formation", eAICommandCategories.CATEGORIES));
-			gesture_items.Insert(new eAICommandMenuItem(eAICommandCategories.CAT_STATUS, "Status", eAICommandCategories.CATEGORIES));
+			//gesture_items.Insert(new eAICommandMenuItem(eAICommandCategories.CAT_STATUS, "Status", eAICommandCategories.CATEGORIES));
 			gesture_items.Insert(new eAICommandMenuItem(eAICommandCategories.CAT_DEBUG, "Debug", eAICommandCategories.CATEGORIES));
 		}
 
@@ -209,7 +209,7 @@ class eAICommandMenu extends UIScriptedMenu
 			gesture_items.Insert(new eAICommandMenuItem(eAICommands.MOV_STOP, "Stop", eAICommandCategories.CAT_MOVEMENT));
 			gesture_items.Insert(new eAICommandMenuItem(eAICommands.MOV_GOTO, "Go To...", eAICommandCategories.CAT_MOVEMENT));
 			gesture_items.Insert(new eAICommandMenuItem(eAICommands.MOV_RTF, "Rejoin", eAICommandCategories.CAT_MOVEMENT));
-			gesture_items.Insert(new eAICommandMenuItem(eAICommands.MOV_GETIN, "Get In", eAICommandCategories.CAT_MOVEMENT));
+			//gesture_items.Insert(new eAICommandMenuItem(eAICommands.MOV_GETIN, "Get In", eAICommandCategories.CAT_MOVEMENT));
 		}
 
 		//Category 2 - Formation
@@ -236,8 +236,8 @@ class eAICommandMenu extends UIScriptedMenu
 			gesture_items.Insert(new eAICommandMenuItem(eAICommands.DEB_CLEARALL, "Clear All AI", eAICommandCategories.CAT_DEBUG));
 			gesture_items.Insert(new eAICommandMenuItem(eAICommands.DEB_RELOAD, "Force Reload", eAICommandCategories.CAT_DEBUG));
 			gesture_items.Insert(new eAICommandMenuItem(eAICommands.DEB_SPAWNZOM, "Spawn Zombie", eAICommandCategories.CAT_DEBUG));
-			gesture_items.Insert(new eAICommandMenuItem(eAICommands.DEB_AIMAP, "AI Menu", eAICommandCategories.CAT_DEBUG));
-			gesture_items.Insert(new eAICommandMenuItem(eAICommands.DEB_GRPMGR, "Group Manager", eAICommandCategories.CAT_DEBUG));
+			//gesture_items.Insert(new eAICommandMenuItem(eAICommands.DEB_AIMAP, "AI Menu", eAICommandCategories.CAT_DEBUG));
+			//gesture_items.Insert(new eAICommandMenuItem(eAICommands.DEB_GRPMGR, "Group Manager", eAICommandCategories.CAT_DEBUG));
 		}
 	}
 
@@ -282,7 +282,7 @@ class eAICommandMenu extends UIScriptedMenu
 		Widget gesture_item_card_widget = gesture_item.GetRadialItemCard();
 
 		//set text
-		ButtonWidget text_widget = gesture_item_card_widget.FindAnyWidget(RADIAL_TEXT);
+		RichTextWidget text_widget = RichTextWidget.Cast(gesture_item_card_widget.FindAnyWidget(RADIAL_TEXT));
 		if (text_widget)
 			text_widget.SetText(gesture_item.GetName());
 	}
@@ -384,6 +384,25 @@ class eAICommandMenu extends UIScriptedMenu
 	}
 
 	//Mouse
+		//! LMB
+	void OnMousePressLeft( Widget w )
+	{
+		if (instance.m_IsCategorySelected)
+		{
+			ExecuteSelectedItem();
+		}
+		else
+		{
+			ExecuteSelectedCategory( w );
+		}
+	}
+	
+	//! RMB
+	void OnMousePressRight( Widget w )
+	{
+		BackOneLevel();
+	}
+	
 	void OnMouseSelect(Widget w)
 	{
 		MarkSelected(w);
@@ -496,13 +515,13 @@ class eAICommandMenu extends UIScriptedMenu
 	protected void ExecuteSelectedCategory(Widget w)
 	{
 		//only when category is not picked yet
-		if (w && !instance.m_IsCategorySelected)
+		if ( w )
 		{
 			eAICommandMenuItem gesture_item;
 			w.GetUserData(gesture_item);
-
+			Print("CATEGORY " + gesture_item.GetCategory() + " x " + eAICommandCategories.CATEGORIES );
 			//is category
-			if (gesture_item.GetCategory() == eAICommandCategories.CATEGORIES)
+			if (!instance.m_IsCategorySelected && gesture_item.GetCategory() == eAICommandCategories.CATEGORIES)
 			{
 				//set category selected
 				instance.m_IsCategorySelected = true;
@@ -520,17 +539,25 @@ class eAICommandMenu extends UIScriptedMenu
 
 	protected void ExecuteSelectedItem()
 	{
+
 		if (instance.m_IsCategorySelected && instance.m_SelectedItem)
 		{
 			if (!GetGame().IsMultiplayer() || GetGame().IsClient())
 			{
 				eAICommandMenuItem selected;
 				instance.m_SelectedItem.GetUserData(selected);
-
+				Print("SELECTED " + selected);
 				if (selected)
 					DayZGame.Cast(GetGame()).GetEAICommandManager().Send(selected.GetID());
 			}
 		}
+	}
+	
+	//only moves to the GestureCategories.CATEGORIES for now
+	protected void BackOneLevel()
+	{
+		RefreshGestures();
+		UpdateCategoryName( "" );
 	}
 
 	bool IsMenuClosing()
