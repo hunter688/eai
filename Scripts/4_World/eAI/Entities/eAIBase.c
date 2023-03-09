@@ -71,6 +71,14 @@ modded class PlayerBase
 		}
 	}
 	
+	override bool CanBeTargetedByAI(EntityAI ai)
+	{
+		if ( IsAI() && GetGroup().GetFaction().ignoreInfected()) {
+			return false;
+		}
+		return super.CanBeTargetedByAI(ai);
+	}
+	
 	// Used for deciding the best aim arbiter for the AI.
 	Man GetNearestPlayer() {
 		autoptr array<Man> nearPlayers = {};
@@ -342,7 +350,7 @@ modded class PlayerBase
 			PlayerBase player = PlayerBase.Cast(newThreats[i]);
 			AnimalBase animal = AnimalBase.Cast(newThreats[i]);
 			// this is the part of the code where we get to play 20 questions
-			if (infected && infected.IsAlive() && !IsViewOccluded(infected.GetPosition() + "0 1.5 0")) {
+			if (!GetGroup().GetFaction().ignoreInfected() && infected && infected.IsAlive() && !IsViewOccluded(infected.GetPosition() + "0 1.5 0")) {
 				// It's an infected, add it to teh threates array
 				temp = vector.Distance(newThreats[i].GetPosition(), GetPosition());
 				if (temp < minDistance) {
@@ -971,7 +979,7 @@ modded class PlayerBase
 			//Print("Aim Debugging - X: " + X + " deltaX: " + m_AimDeltaX + " Y: " + Y + " deltaY: " + m_AimDeltaY);
 			if (correctionCounter < 1) {
 				pInputs.OverrideAimChangeX(true, 0.001*m_AimDeltaY);
-				pInputs.OverrideAimChangeY(true, 1.0);
+				pInputs.OverrideAimChangeY(true, 0.001*m_AimDeltaY); //1.0);
 				lastdY = m_AimDeltaY;
 			} else { // Aim along the x axis normally
 				// could save time on like 2/10 updates by moving calculations in here

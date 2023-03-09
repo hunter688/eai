@@ -13,6 +13,10 @@ class eAIFaction {
 	int confirmKill(PlayerBase target) {
 		return 2;
 	}
+	bool ignoreInfected()
+	{
+		return false;
+	}
 };
 
 class eAIFactionRaiders : eAIFaction { // this is the faction that seeks the Lost Ark
@@ -20,6 +24,18 @@ class eAIFactionRaiders : eAIFaction { // this is the faction that seeks the Los
 	override bool isFriendly(eAIFaction other) {
 		// Raiders view any group that is not them as enemy.
 		return false;
+	}
+};
+
+class eAIFactionRaidersPO : eAIFaction { // this is the faction that seeks the Lost Ark
+	void eAIFactionRaidersPO() {name = "RaidersPO";}
+	override bool isFriendly(eAIFaction other) {
+		// Raiders view any group that is not them as enemy.
+		return false;
+	}
+	override bool ignoreInfected()
+	{
+		return true;
 	}
 };
 
@@ -46,6 +62,19 @@ class eAIFactionGuards : eAIFaction {
 	}
 };
 
+class eAIFactionGuardsPO : eAIFactionGuards {
+	void eAIFactionGuardsPO() {name = "GuardsPO";}
+	override bool isFriendly(eAIFaction other) {
+		// "friendly" in this case just guarantees that they won't shoot at other guards with their weapons up
+		if (other.getName() == "GuardsPO") return true;
+		return false;
+	}
+	override bool ignoreInfected()
+	{
+		return true;
+	}
+}
+
 class eAIFactionWest : eAIFaction {
 	void eAIFactionWest() {name = "West";}
 	override bool isFriendly(eAIFaction other) {
@@ -56,9 +85,9 @@ class eAIFactionWest : eAIFaction {
 };
 
 class eAIFactionEast : eAIFaction {
-	void eAIFactionEast() {name = "Raiders";}
+	void eAIFactionEast() {name = "East";}
 	override bool isFriendly(eAIFaction other) {
-		if (other.getName() == "Raiders") return true;
+		if (other.getName() == "East") return true;
 		if (other.getName() == "Civilian") return true;
 		return false;
 	}
