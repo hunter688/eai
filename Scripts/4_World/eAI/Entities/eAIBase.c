@@ -392,7 +392,7 @@ modded class PlayerBase
 				if (temp < minDistance) {
 					AddToThreatList(animal, true);
 				} else AddToThreatList(animal);
-			} else if (player && PlayerIsEnemy(player) && player.IsAlive() && !IsViewOccluded(player.GetPosition() + "0 1.3 0")) {
+			} else if (player && PlayerIsEnemy(player) && player.IsAlive() && ( !IsViewOccluded(player.GetBonePositionWS(player.GetBoneIndexByName("Head"))) || !IsViewOccluded(player.GetBonePositionWS(player.GetBoneIndexByName("Pelvis"))) ) ) {
 				//Print("name: " + player.GetGroup().GetFaction().getName());
 				if (player.GetGroup().GetFaction().getName() == "Guards") {i++; continue;}
 				// If it's an enemy player
@@ -578,7 +578,7 @@ modded class PlayerBase
 	}
 	
 	bool IsViewOccluded(vector end) {
-		vector start = GetPosition() + "0 1.5 0";
+		vector start = GetBonePositionWS(GetBoneIndexByName("Head")); //GetPosition() + "0 1.5 0";
 		vector hitPos, hitNormal;
 		Object hitObject;
 		float hitFraction;
