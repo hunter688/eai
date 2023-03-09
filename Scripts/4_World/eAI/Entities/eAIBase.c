@@ -587,7 +587,7 @@ modded class PlayerBase
 		vector contact_dir;
 		int contact_component;
 
-		PhxInteractionLayers layerMask = PhxInteractionLayers.BUILDING; //PhxInteractionLayers.CHARACTER; // |PhxInteractionLayers.AI|PhxInteractionLayers.AI_COMPLEX|PhxInteractionLayers.FIREGEOM|PhxInteractionLayers.BUILDING|PhxInteractionLayers.VEHICLE|PhxInteractionLayers.TERRAIN|PhxInteractionLayers.FENCE;
+		PhxInteractionLayers layerMask = PhxInteractionLayers.BUILDING|PhxInteractionLayers.CHARACTER|PhxInteractionLayers.FIREGEOM|PhxInteractionLayers.BUILDING|PhxInteractionLayers.VEHICLE|PhxInteractionLayers.TERRAIN;
 		//should do raycast but no navmesh raycast
 		bool raycast = DayZPhysics.RayCastBullet(start, end, layerMask, null, hitObject, hitPos, hitNormal, hitFraction);
 		
@@ -597,12 +597,15 @@ modded class PlayerBase
 		if (raycast)
 		{
 			float dist = vector.Distance(end, hitPos);
-			if (dist < 1.5)
+			if (dist < 0.8)
 			{
 				//Print("eAI RAYCAST HIT");
 				return false;
 			}
+			return true;
 			//Print("RAYCAST TRUE");
+		} else {
+			return false;
 		}
 		//return true;
 		//Print("eAI Path Blocked " + PathBlocked(start, end, hitPos, hitNormal));
